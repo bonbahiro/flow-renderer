@@ -30,15 +30,21 @@ PT = PX / 72                # 1pt → px
 SYSTEM_COLORS = {
     "sales": "FEF9C3", "bi": "DCFCE7", "erp": "E0F2FE", "scheduler": "FFEDD5", "mes": "EDE9FE",
     "plm": "86EFAC", "portal": "FCE7F3", "factory": "BEF264", "manual": "F1F5F9",
+    "inhouse": "CCFBF1",
 }
 SYSTEM_LABELS = {
     "sales": "販売・案件管理", "bi": "分析・BI", "erp": "基幹ERP", "scheduler": "生産計画",
     "mes": "製造実行", "plm": "仕様書・BOM", "portal": "取引先ポータル",
-    "factory": "工場業務", "manual": "手作業・Excel",
+    "factory": "工場業務", "manual": "手作業・Excel", "inhouse": "社内DB",
 }
 INK = "334155"; SUB = "64748B"; RED = "DC2626"; GRAY = "94A3B8"; DARK = "1E293B"
-EDGE_STYLE = {"flow": ("475569", 1.0, False), "if": ("2563EB", 1.0, True), "goods": ("A16207", 2.0, False)}
-EDGE_NAMES = {"flow": "業務・情報の流れ", "if": "システム連携", "goods": "物の流れ"}
+EDGE_STYLE = {"flow": ("475569", 1.0, False), "if": ("2563EB", 1.0, True), "goods": ("A16207", 2.0, False),
+              "paper": ("A16207", 1.5, "dot")}
+EDGE_NAMES = {"flow": "業務・情報の流れ", "if": "システム連携", "goods": "物の流れ", "paper": "紙の受け渡し"}
+
+
+def _dash(d):
+    return ("dashed=1;dashPattern=1 3;" if d == "dot" else "dashed=1;") if d else ""
 NODE_DEFAULT_SIZE = {
     "process": (4, 1.3), "data": (3.4, 2), "doc": (3.4, 1.8),
     "decision": (3.4, 2), "terminal": (3, 1.2), "note": (4, 1.5),
@@ -170,8 +176,9 @@ def render(spec, out_path):
         frame = "rounded=0;html=1;whiteSpace=wrap;fillColor=none;strokeColor=#94A3B8;dashed=1;dashPattern=4 3;"
         if "row" in o and w > h * 2:      # 横長＝L3のスイムレーン：名前は左端に縦書き
             cell(f"org_{i}", "", frame, x, y, w, h)
-            cell(f"orgl_{i}", escape(o["name"]), "text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=#F1F5F9;"
-                 "horizontal=0;align=center;verticalAlign=middle;" + _font(12, DARK, True), x, y, 0.32 * PX, h)
+            tate = "<br>".join(escape(ch) for ch in o["name"])      # 1文字ずつ改行して縦書き
+            cell(f"orgl_{i}", tate, "text;html=1;whiteSpace=wrap;strokeColor=none;fillColor=#F1F5F9;"
+                 "align=center;verticalAlign=middle;" + _font(12, DARK, True), x, y, 0.32 * PX, h)
         else:
             cell(f"org_{i}", escape(o["name"]), frame + "verticalAlign=top;align=center;spacingTop=4;"
                  + _font(13, DARK), x, y, w, h)
@@ -254,11 +261,28 @@ def render(spec, out_path):
                  f"exitX={ex};exitY={ey};exitDx=0;exitDy=0;exitPerimeter=0;"
                  f"entryX={nx};entryY={ny};entryDx=0;entryDy=0;entryPerimeter=0;"
                  f"strokeColor=#{color};strokeWidth={_lw(width)};endArrow=block;endFill=1;endSize=5;"
-                 "jumpStyle=arc;jumpSize=8;labelBackgroundColor=#FFFFFF;" + ("dashed=1;" if dash else "")
+                 "jumpStyle=arc;jumpSize=8;labelBackgroundColor=#FFFFFF;" + _dash(dash)
                  + _font(8.5, "475569"))
+        geo = '<mxGeometry relative="1" as="geometry"/>'
+        if e.get("label"):      # ラベルは PowerPoint 版と同じ位置（最長区間の中点＋label_dx/dy）に置く
+            segs = [(path[i], path[i + 1]) for i in range(len(path) - 1)]
+            lens = [abs(p[0] - q[0]) + abs(p[1] - q[1]) for p, q in segs]
+            p, q = segs[lens.index(max(lens))]
+            tx = (p[0] + q[0]) / 2 + e.get("label_dx", 0) * G.cw
+            ty = (p[1] + q[1]) / 2 + e.get("label_dy", 0) * G.rh
+            half, acc = sum(lens) / 2, 0          # draw.io の既定位置＝経路の長さの中点
+            mx, my = path[0]
+            for (p2, q2), L in zip(segs, lens):
+                if acc + L >= half and L > 0:
+                    t = (half - acc) / L
+                    mx, my = p2[0] + (q2[0] - p2[0]) * t, p2[1] + (q2[1] - p2[1]) * t
+                    break
+                acc += L
+            geo = (f'<mxGeometry relative="1" as="geometry"><mxPoint x="{round(tx - mx, 1)}" '
+                   f'y="{round(ty - my, 1)}" as="offset"/></mxGeometry>')
         cells.append(f'<mxCell id={quoteattr(f"E{k:03d}_{a}_{b}")} value={quoteattr(_label(e.get("label", "")))} '
                      f'style={quoteattr(style)} edge="1" parent="1" source={quoteattr(a)} target={quoteattr(b)}>'
-                     f'<mxGeometry relative="1" as="geometry"/></mxCell>')
+                     f'{geo}</mxCell>')
 
     for nid, val, style, x, y, w, h, parent in node_cells:
         cell(nid, val, style, x, y, w, h, parent)
@@ -300,7 +324,7 @@ def _legend(cell, G, spec, raw):
         elif kind == "edge":
             col, w, d = EDGE_STYLE[v]
             st = (f"html=1;endArrow=block;endFill=1;endSize=5;strokeColor=#{col};strokeWidth={_lw(w)};"
-                  + ("dashed=1;" if d else ""))
+                  + _dash(d))
             raw.append(
                 f'<mxCell id="lg_{i}" value="" style={quoteattr(st)} edge="1" parent="1">'
                 f'<mxGeometry relative="1" as="geometry"><mxPoint x="{x}" y="{y + 12}" as="sourcePoint"/>'

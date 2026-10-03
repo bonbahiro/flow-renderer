@@ -40,17 +40,19 @@ SYSTEM_COLORS = {            # システム区分 → 塗り色
     "portal":    "FCE7F3",   # 取引先向けポータル
     "factory":   "BEF264",   # 工場業務・その他
     "manual":    "F1F5F9",   # 手作業・Excel・紙
+    "inhouse":   "CCFBF1",   # 社内DB（FileMaker 等）
 }
 SYSTEM_LABELS = {
     "sales": "販売・案件管理", "bi": "分析・BI", "erp": "基幹ERP", "scheduler": "生産計画",
     "mes": "製造実行", "plm": "仕様書・BOM", "portal": "取引先ポータル",
-    "factory": "工場業務", "manual": "手作業・Excel",
+    "factory": "工場業務", "manual": "手作業・Excel", "inhouse": "社内DB",
 }
 INK = "334155"; SUB = "64748B"; RED = "DC2626"; GRAY = "94A3B8"
 EDGE_STYLE = {   # kind → (色, 太さpt, 破線)
     "flow":  ("475569", 1.0, False),   # 業務・情報の流れ
     "if":    ("2563EB", 1.0, True),    # システム連携（I/F）
     "goods": ("A16207", 2.0, False),   # 物の流れ
+    "paper": ("A16207", 1.5, "dot"),   # 紙の受け渡し
 }
 NODE_DEFAULT_SIZE = {        # type → (w, h) グリッド単位
     "process": (4, 1.3), "data": (3.4, 2), "doc": (3.4, 1.8),
@@ -205,7 +207,7 @@ def _arrow(cxn, color, width, dash):
     for c in list(ln): ln.remove(c)
     sf = etree.SubElement(ln, qn("a:solidFill"))
     etree.SubElement(sf, qn("a:srgbClr")).set("val", color)
-    if dash: etree.SubElement(ln, qn("a:prstDash")).set("val", "dash")
+    if dash: etree.SubElement(ln, qn("a:prstDash")).set("val", "sysDot" if dash == "dot" else "dash")
     etree.SubElement(ln, qn("a:round"))
     t = etree.SubElement(ln, qn("a:tailEnd")); t.set("type", "triangle")
     t.set("w", "med"); t.set("len", "med")
@@ -255,7 +257,12 @@ def render(spec, out_path):
         x, y, w, h = G.box(o["col"], o.get("row", 0), o["w"], o.get("h", G.rows - o.get("row", 0)))
         s = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x, y, w, h)
         _fill(s, None); _line(s, "94A3B8", 1.0, True); _no_shadow(s)
-        _set_text(s, o["name"], 13, "1E293B", False, PP_ALIGN.CENTER, MSO_ANCHOR.TOP, 0.06)
+        if "row" in o and w > h * 2:      # 横長＝スイムレーン：名前は左端に縦書き
+            lb = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x, y, Inches(0.32), h)
+            _fill(lb, "F1F5F9"); _line(lb, None); _no_shadow(lb)
+            _set_text(lb, "\n".join(o["name"]), 12, "1E293B", True, PP_ALIGN.CENTER, MSO_ANCHOR.MIDDLE, 0.02)
+        else:
+            _set_text(s, o["name"], 13, "1E293B", False, PP_ALIGN.CENTER, MSO_ANCHOR.TOP, 0.06)
 
     # システム領域
     sys_boxes = {}
@@ -387,7 +394,7 @@ def _legend(slide, G, spec):
     if not items: return
     per_row, iw, ih = 5, 1.4, 0.24          # 凡例はヘッダー右側（図の領域外）に置く
     x0 = G.pw - 0.4 - per_row * iw; y0 = 0.2
-    names = {"flow": "業務・情報の流れ", "if": "システム連携", "goods": "物の流れ"}
+    names = {"flow": "業務・情報の流れ", "if": "システム連携", "goods": "物の流れ", "paper": "紙の受け渡し"}
     for i, (kind, v) in enumerate(items):
         x = Inches(x0 + (i % per_row) * iw); y = Inches(y0 + (i // per_row) * ih)
         if kind == "sys":
